@@ -45,6 +45,16 @@ class MicRunner:
         self.app.hotword.start()
         self.app.llm.start()
 
+        # 6. 预创建"正在听"灵动岛浮窗（常驻显示）
+        try:
+            from core.client.audio.stream import _get_island
+            island = _get_island()
+            if island:
+                island.ensure_visible()
+                logger.info("[灵动岛] 已在启动时预创建并显示")
+        except Exception as e:
+            logger.debug(f"[灵动岛] 启动预创建失败: {e}")
+
     async def run(self):
         """麦克风模式主入口"""
         

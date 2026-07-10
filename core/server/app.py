@@ -10,6 +10,7 @@ CapsWriter Offline 服务端主程序门面类 (Facade)
 import os
 import asyncio
 from pathlib import Path
+from core.runtime import get_base_dir
 from config_server import ServerConfig as Config, __version__
 from .state import ServerState, console
 from core.tools.signal_handler import register_signal
@@ -25,8 +26,8 @@ class CapsWriterServer:
     管理的外部接口极其简洁：start()。
     """
     def __init__(self):
-        # 确保正确的工作目录
-        self.base_dir = Path(__file__).parents[2]
+        # 确保正确的工作目录（源码 / PyInstaller / UV 安装均适用）
+        self.base_dir = get_base_dir("server")
         os.chdir(self.base_dir)
 
         # 初始化事件循环

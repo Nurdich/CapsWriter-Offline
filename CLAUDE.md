@@ -109,10 +109,13 @@
 - **日志**: `logs/client_latest.log` & `logs/server_latest.log`（排查问题唯一入口）
 
 ## 打包与部署 (Build)
-- [`build.spec`](build.spec): Server + Client 打包。
-- [`build-client.spec`](build-client.spec): 仅 Client (Win7兼容)。
-- **策略**: 所有 Python 依赖放入 `internal/`。根目录仅保留配置文件、源码入口 ([`start_*.py`](start_server.py))、核心源码 ([`core/`](core/))、模型文件夹 ([`models/`](models/)) 和说明文档。
-- **PyInstaller 6.0+**: 使用现代化打包配置，支持 CUDA provider 可选收集。
+
+v3.0 起通过 **UV 双包** 分发，不再维护 PyInstaller 集成 exe。
+
+- [`packages/capswriter-client/`](packages/capswriter-client/) → `uv tool install capswriter-client`
+- [`packages/capswriter-server/`](packages/capswriter-server/) → `uv tool install capswriter-server`
+- [`build_uv.py`](build_uv.py): 构建 wheel 到 `dist/uv/`（维护者发布 PyPI）
+- 用户安装说明: [`docs/UV安装说明.md`](docs/UV安装说明.md)
 
 ## 模型支持 (Models)
 

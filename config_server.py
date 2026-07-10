@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # 版本信息
-__version__ = '2.6'
+__version__ = '3.0'
 
 # 项目根目录
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,6 +25,21 @@ class ServerConfig:
     # 日志配置
     log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
     aligner_idle_timeout = 10  # 对齐引擎空闲多少秒后自动释放显存 (0 表示不释放)
+
+    # 麦克风增量预览识别（实时冒字加速）
+    # 不等分段攒满，每隔 interval 秒对当前未消费缓冲做一次只读识别，
+    # 结果仅用于客户端灵动岛实时回显；最终上屏文字仍走原有分段管线，互不影响。
+    # 首字延迟从"分段阈值(约 3s)"降到"min_duration + 识别耗时(约 0.5~0.8s)"
+    mic_preview_enabled = True
+    mic_preview_interval = 0.6      # 预览识别间隔（秒）；CPU 推理较慢时可调大
+    mic_preview_min_duration = 0.4  # 缓冲不足该时长不做预览（秒）
+
+    # 麦克风终段全量重识别（two-pass 第二遍，上屏质量优先）
+    # 松开键后用服务端留存的整段录音一次性识别，直接替换分段拼接结果——
+    # 上下文完整，断句/标点/语义显著优于分段接缝拼接。
+    # 超过 max_duration 的长录音自动退回分段拼接（避免整段识别拖慢上屏）。
+    mic_final_full_enabled = True
+    mic_final_full_max_duration = 30    # 整段重识别的录音时长上限（秒）
 
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
     gpu_boost_enabled = False                   # 总开关，默认关闭

@@ -26,8 +26,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# PyInstaller 打包配置
-# 通常这些文件由脚本生成，可能包含本地路径
+# PyInstaller 遗留（已弃用，v3.0 改用 UV 双包）
 *.manifest
 *.spec
 *.zip
@@ -188,3 +187,5 @@ release
 *.exe
 
 models/**/*.cfg
+# 灵动岛拖拽位置状态（运行时生成）
+island_state.json

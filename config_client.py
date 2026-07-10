@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 # 版本信息
-__version__ = '2.6'
+__version__ = '3.0'
 
 # 项目根目录
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +52,34 @@ class ClientConfig:
 
     traditional_convert = False     # 是否将识别结果转换为繁体中文
     traditional_locale = 'zh-hant'  # 繁体地区：'zh-hant'（标准繁体）, 'zh-tw'（台湾繁体）, 'zh-hk'（香港繁体）
+
+    mute_system_audio = True        # 录音时是否静音系统声音输出
+
+    # "正在听" 灵动岛浮窗（录音时在屏幕顶部弹出黑色药丸提示，实时反馈麦克风状态）
+    listening_island_enabled = True     # 是否启用
+    listening_island_min_threshold = 0.006  # 人声检测/音量条满量程下限（float32 归一化 RMS）
+    listening_island_noise_factor = 3.5     # 人声检测阈值 = 噪声底 x 该倍数
+    listening_island_confirm_frames = 2     # 连续超阈值帧数（50ms/帧）即切换"正在听"
+    # 停靠边：top/bottom/left/right。拖动浮窗松手后会自动吸附到最近的边并记忆，
+    # 此项仅作为初始默认停靠边。
+    listening_island_dock_edge = 'top'
+    listening_island_auto_hide = True       # 空闲时自动缩到停靠边只露一小条；False 则空闲时也完整显示
+    listening_island_beam = True            # 识别完成后的"送达流光"动画（一道光飞向鼠标位置）
+    # 流光风格：'comet'(青绿彗星) / 'gold'(暖金流星) / 'sakura'(樱粉飘落)
+    #          / 'neon'(霓虹紫电) / 'minimal'(极简白线)
+    #          / 'vegeta'(连续能量弹——说多少字射多少发，每次随机换色，最后压轴一发大的)
+    #          / 'final_flash'(终极闪光——单发金白能量波大爆炸)
+    # 快速预览：python core/listening_island.py vegeta
+    listening_island_beam_style = 'comet'
+    # 自定义覆盖：在所选风格基础上改任意键（可用键详见 core/listening_island.py
+    # 顶部 BEAM_PRESETS 注释）。color 可为 (R,G,B) 固定色 / 'random' 每次随机
+    # / 'rainbow' 每发一色。示例：{'color': 'rainbow', 'spray_n': 30, 'fly_ms': 300}
+    listening_island_beam_custom = {}
+    listening_island_show_partial = True    # 录音时实时显示识别出的文字（弹幕冒字）
+    # 流式实时反馈：录音时分段长度（秒），每段服务端返回中间文字实时显示在灵动岛上
+    # 段越短冒字越快，但太短影响拼接质量。建议 1.5~3 秒
+    listening_stream_seg_duration = 2.0    # 流式分段长度（秒）
+    listening_stream_seg_overlap = 0.5     # 流式分段重叠（秒，用于去重）
 
     hot = True                 # 是否启用热词替换（统一 RAG 匹配）
     hot_thresh = 0.85           # RAG 替换热词阈值（高阈值，用于实际替换）

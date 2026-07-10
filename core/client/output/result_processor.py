@@ -197,8 +197,17 @@ class ResultProcessor:
                 f"时延: {delay:.2f}s"
             )
 
-        # 如果非最终结果，继续等待
+        # 如果非最终结果，推送给灵动岛实时显示，然后继续等待
+        # （仅在仍处于录音中时推送：松开键后迟到的中间结果不再冒字，
+        #   避免污染下一轮录音的显示状态）
         if not message.is_final:
+            try:
+                from core.client.audio.stream import _get_island
+                island = _get_island()
+                if island and text and self.state.recording:
+                    island.show_partial(text)
+            except Exception:
+                pass
             return
 
         # 繁体转换
@@ -309,6 +318,16 @@ class ResultProcessor:
         self._log_modifier_key_state()
 
         console.line()
+
+        # 灵动岛：识别结果已处理完毕 → 软回落（仅"识别中"态回空闲；
+        # 若用户已按键开始新一轮录音，迟到的完成通知不打断新状态）
+        try:
+            from core.client.audio.stream import _get_island
+            island = _get_island()
+            if island:
+                island.finish_round()
+        except Exception:
+            pass
     
     def _cleanup(self) -> None:
         """清理资源"""
