@@ -11,6 +11,7 @@ import sys
 import asyncio
 from pathlib import Path
 
+from core.runtime import get_base_dir
 from .state import ClientState
 from . import logger
 from config_client import ClientConfig as Config, __version__
@@ -44,8 +45,8 @@ class CapsWriterClient:
     管理的外部接口简洁：start()。
     """
     def __init__(self):
-        # 确保正确的工作目录
-        self.base_dir = Path(__file__).parents[2]
+        # 确保正确的工作目录（源码 / PyInstaller / UV 安装均适用）
+        self.base_dir = get_base_dir("client")
         os.chdir(self.base_dir)
             
         # 初始化事件循环

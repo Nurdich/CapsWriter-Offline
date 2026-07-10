@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Optional
 
 from . import logger
 from core.tools.my_status import Status
+from core.client.audio.mute_audio import SystemAudioMute
+from config_client import ClientConfig as Config
  
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -90,6 +92,19 @@ class ShortcutTask:
         # 打印动画：正在录音
         self._status.start()
 
+        # "正在听" 灵动岛：上膛（检测到声音才弹出）
+        try:
+            from core.client.audio.stream import _get_island
+            island = _get_island()
+            if island:
+                island.arm()
+        except Exception as e:
+            logger.warning(f"[灵动岛] launch 上膛失败: {e}")
+
+        # 静音系统声音
+        if Config.mute_system_audio:
+            SystemAudioMute.mute()
+
         # 启动识别任务
         recorder = self._get_recorder()
         self.task = asyncio.run_coroutine_threadsafe(
@@ -105,6 +120,19 @@ class ShortcutTask:
         self.state.stop_recording()
         self._status.stop()
 
+        # 灵动岛：取消 → 回空闲态
+        try:
+            from core.client.audio.stream import _get_island
+            island = _get_island()
+            if island:
+                island.idle()
+        except Exception:
+            pass
+
+        # 恢复系统声音
+        if Config.mute_system_audio:
+            SystemAudioMute.unmute()
+
         self.task.cancel()
         self.task = None
 
@@ -115,6 +143,19 @@ class ShortcutTask:
         self.is_recording = False
         self.state.stop_recording()
         self._status.stop()
+
+        # 灵动岛：松开键 → 进入识别中态（等服务端返回结果再回空闲）
+        try:
+            from core.client.audio.stream import _get_island
+            island = _get_island()
+            if island:
+                island.processing()
+        except Exception:
+            pass
+
+        # 恢复系统声音
+        if Config.mute_system_audio:
+            SystemAudioMute.unmute()
 
         asyncio.run_coroutine_threadsafe(
             self.state.queue_in.put({

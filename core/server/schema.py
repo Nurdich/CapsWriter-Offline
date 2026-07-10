@@ -42,6 +42,10 @@ class Task:
     language: str = 'auto'
     samplerate: int = 16000
     command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'
+    preview: bool = False       # 增量预览任务：只读识别当前未消费缓冲，
+                                # 结果仅用于客户端实时回显，不写入 session 累计状态
+    full: bool = False          # 终段全量任务：data 为整段录音，识别结果直接
+                                # 替换（而非拼接）累计文本，消除分段接缝错误
 
 
 @dataclass

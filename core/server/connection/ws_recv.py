@@ -31,9 +31,11 @@ class AudioCache:
     用于缓存接收到的音频数据，直到达到分段阈值后提交处理。
     """
     def __init__(self):
-        self.chunks: bytes = b''    # 音频数据缓冲
+        self.chunks: bytes = b''    # 音频数据缓冲（分段消费）
         self.offset: float = 0.0    # 当前偏移时间（秒）
         self.byte_count: int = 0    # 累计接收字节数
+        self.last_preview: float = 0.0  # 上次提交增量预览识别的时刻
+        self.full_chunks: bytes = b''   # 整段录音留存（终段全量重识别用，只增不消费）
 
     @property
     def duration(self) -> float:
@@ -50,6 +52,8 @@ class AudioCache:
         self.chunks = b''
         self.offset = 0.0
         self.byte_count = 0
+        self.last_preview = 0.0
+        self.full_chunks = b''
 
 
 async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) -> None:
@@ -83,6 +87,13 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
         data = b64decode(msg.data)
         cache.chunks += data
         cache.byte_count += len(data)
+
+        # 终段全量重识别：留存整段录音（仅 mic，且不超过时长上限时才有用）
+        if (msg.source == 'mic'
+                and getattr(Config, 'mic_final_full_enabled', False)
+                and cache.total_duration
+                    <= getattr(Config, 'mic_final_full_max_duration', 30)):
+            cache.full_chunks += data
 
         if not msg.is_final:
             # 打印状态消息
@@ -120,6 +131,33 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                     f"偏移: {cache.offset}s, 缓冲区: {len(cache.chunks)} bytes"
                 )
 
+            # 增量预览识别：不等分段攒满，定期对未消费缓冲做只读识别，
+            # 让客户端灵动岛的实时冒字接近即时（结果不影响正式分段管线）
+            if (msg.source == 'mic'
+                    and getattr(Config, 'mic_preview_enabled', False)
+                    and cache.duration >= getattr(Config, 'mic_preview_min_duration', 0.4)
+                    and time.time() - cache.last_preview
+                        >= getattr(Config, 'mic_preview_interval', 0.6)):
+                cache.last_preview = time.time()
+                queue_in.put(Task(
+                    type='mic',
+                    data=cache.chunks,
+                    offset=cache.offset,
+                    task_id=msg.task_id,
+                    socket_id=socket_id,
+                    overlap=msg.seg_overlap,
+                    is_final=False,
+                    preview=True,
+                    time_start=msg.time_start,
+                    time_submit=time.time(),
+                    context=msg.context,
+                    language=msg.language,
+                ))
+                logger.debug(
+                    f"提交预览识别，任务ID: {msg.task_id}, "
+                    f"缓冲时长: {cache.duration:.2f}s"
+                )
+
         else:  # is_final
             # 打印状态消息
             if msg.source == 'mic':
@@ -128,22 +166,35 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 print(f'音频文件接收完毕，时长 {cache.total_duration:.2f}s')
                 logger.info(f"音频文件接收完毕，任务ID: {msg.task_id}, 时长: {cache.total_duration:.2f}s")
 
-            # 提交最终片段
+            # 提交最终片段。
+            # 终段全量重识别（two-pass 第二遍）：录音未超上限时，用整段录音
+            # 一次性识别替换分段拼接结果，消除接缝错误；超长退回分段拼接。
+            use_full = (
+                msg.source == 'mic'
+                and getattr(Config, 'mic_final_full_enabled', False)
+                and cache.full_chunks
+                and cache.total_duration
+                    <= getattr(Config, 'mic_final_full_max_duration', 30)
+            )
             task = Task(
                 type=msg.source,
-                data=cache.chunks,
-                offset=cache.offset,
+                data=cache.full_chunks if use_full else cache.chunks,
+                offset=0.0 if use_full else cache.offset,
                 task_id=msg.task_id,
                 socket_id=socket_id,
-                overlap=msg.seg_overlap,
+                overlap=0.0 if use_full else msg.seg_overlap,
                 is_final=True,
+                full=use_full,
                 time_start=msg.time_start,
                 time_submit=time.time(),
                 context=msg.context,
                 language=msg.language,
             )
             queue_in.put(task)
-            logger.debug(f"提交最终片段，任务ID: {msg.task_id}, 数据大小: {len(cache.chunks)} bytes")
+            logger.debug(
+                f"提交最终片段，任务ID: {msg.task_id}, full={use_full}, "
+                f"数据大小: {len(task.data)} bytes"
+            )
 
             # 重置缓冲区
             cache.reset()

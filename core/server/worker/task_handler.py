@@ -26,11 +26,16 @@ class TaskBuffer:
 
     def enqueue(self, task):
         """将任务放入对应 task_id 的缓冲尾部（同 session 内 FIFO）。
-        首次遇到新 task_id 时预创建 session。"""
+        首次遇到新 task_id 时预创建 session。
+        预览任务只保留最新一个：识别速度跟不上时自动坍缩，不堆积。"""
         tid = task.task_id
         if tid not in self._buffers:
             self._buffers[tid] = deque()
             self.state.get_session(tid, task.socket_id, task.type)
+        if getattr(task, 'preview', False):
+            self._buffers[tid] = deque(
+                t for t in self._buffers[tid] if not getattr(t, 'preview', False)
+            )
         self._buffers[tid].append(task)
 
     def pop(self):

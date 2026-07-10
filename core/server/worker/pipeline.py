@@ -9,6 +9,9 @@
 
 import re
 import time
+
+import numpy as np
+
 from core.server.state import WorkerState, console
 from core.server.schema import Task, Result
 from core.server.formatter import TextFormatter
@@ -56,11 +59,53 @@ class TaskPipeline:
         except Exception as e:
             logger.warning(f"简单文本拼接失败: {e}")
 
+    def _process_preview(self, task: Task) -> Result:
+        """增量预览识别（只读路径）
+
+        对当前未消费缓冲整体识别一次，与 session 已确认文本拼接后返回，
+        仅用于客户端实时回显。session 的累计状态（text/tokens/duration）
+        一律不写入——正式分段管线随后会用同一段音频产出权威结果。
+        """
+        session = self.state.get_session(task.task_id, task.socket_id, task.type)
+        base_text = session.result.text  # 只读引用已确认文本
+
+        if Config.gpu_boost_enabled and self.state.gpu_boosted:
+            self.state.gpu_last_active = time.time()
+
+        preview_text = base_text
+        samples = np.frombuffer(task.data, dtype=np.float32)
+        if len(samples) >= 1600:  # ≥0.1s 才值得推理
+            stream = self.recognizer.create_stream()
+            stream.accept_waveform(task.samplerate, samples)
+            self.recognizer.decode_stream(
+                stream, context=task.context, language=task.language)
+            seg = stream.result.text.replace('@@', '').strip()
+            seg = re.sub(r'\s+', ' ', seg)
+            if seg:
+                preview_text = merge_by_text(base_text, seg)
+            logger.debug(f"预览识别: {task.task_id[:8]}, "
+                         f"缓冲={len(samples) / task.samplerate:.2f}s, 段文本={seg[:40]}")
+
+        return Result(
+            task_id=task.task_id,
+            socket_id=task.socket_id,
+            type='mic',
+            duration=session.result.duration,
+            time_start=task.time_start,
+            time_submit=task.time_submit,
+            time_complete=time.time(),
+            text=preview_text,
+            is_final=False,
+        )
+
     def process(self, task: Task) -> Result:
         """
         处理单个音频任务片段并返回识别结果
         """
         try:
+            if getattr(task, 'preview', False):
+                return self._process_preview(task)
+
             logger.info(f"任务 {task.task_id[:8]}, 语言={task.language}, 类型={task.type}")
             is_first_segment = task.task_id not in self.state.sessions
             session = self.state.get_session(task.task_id, task.socket_id, task.type)
@@ -93,39 +138,53 @@ class TaskPipeline:
             asr_raw_text = stream.result.text
             logger.info(f'模型输出：{asr_raw_text}')
             console.print(f'\033[0G  模型输出：[cyan]{asr_raw_text}', soft_wrap=True)
-            self._process_simple_merge(result, asr_raw_text)
 
-            # 5. 路径 B: 对齐增强 (仅针对文件任务)
-            # 门控：仅在“文件任务”且“引擎不支持时间戳”时，才调用外部 Aligner
-            caps = self.recognizer.capabilities
-            if (task.type == 'file'
-                and EngineCapabilities.TIMESTAMPS not in caps 
-                and self.aligner 
-                and stream.result.text.strip()):
-                
-                logger.debug(f"🚩 [Pipeline] 正在对文件分片执行对齐补齐...")
-                align_res = self.aligner.align(audio=samples, text=stream.result.text, language=task.language, offset_sec=0.0)
-                if align_res and align_res.items:
-                    stream.result.tokens = [it.text for it in align_res.items]
-                    stream.result.timestamps = [it.start_time for it in align_res.items]
+            if getattr(task, 'full', False) and task.is_final:
+                # 终段全量重识别（two-pass 第二遍）：整段识别结果直接替换
+                # 分段拼接的累计文本——上下文完整，无接缝错误
+                full_text = asr_raw_text.replace('@@', '').strip()
+                full_text = re.sub(r'\s+', ' ', full_text)
+                logger.info(f'整段重识别替换拼接结果: '
+                            f'{len(result.text)} -> {len(full_text)} 字符')
+                result.text = full_text
+                result.tokens = process_tokens_safely(stream.result.tokens)
+                result.timestamps = list(stream.result.timestamps)
+                result.text_accu = tokens_to_text(result.tokens)
+                # duration 以整段为准（覆盖分段累计值）
+                result.duration = len(samples) / task.samplerate
+            else:
+                self._process_simple_merge(result, asr_raw_text)
 
+                # 5. 路径 B: 对齐增强 (仅针对文件任务)
+                # 门控：仅在“文件任务”且“引擎不支持时间戳”时，才调用外部 Aligner
+                caps = self.recognizer.capabilities
+                if (task.type == 'file'
+                    and EngineCapabilities.TIMESTAMPS not in caps
+                    and self.aligner
+                    and stream.result.text.strip()):
 
-            # 6. 精确 Token 级拼接 (即便没有对齐器，原生支持时间戳的模型也会走这里)
-            new_tokens = process_tokens_safely(stream.result.tokens)
-            new_timestamps = list(stream.result.timestamps)
-            
-            result.tokens, result.timestamps = merge_tokens_by_sequence_matcher(
-                prev_tokens=result.tokens,
-                prev_timestamps=result.timestamps,
-                new_tokens=new_tokens,
-                new_timestamps=new_timestamps,
-                offset=task.offset,
-                overlap=task.overlap,
-                is_first_segment=is_first_segment
-            )
-            
-            # 7. 生成精确文本结果 (text_accu)
-            result.text_accu = tokens_to_text(result.tokens)
+                    logger.debug(f"🚩 [Pipeline] 正在对文件分片执行对齐补齐...")
+                    align_res = self.aligner.align(audio=samples, text=stream.result.text, language=task.language, offset_sec=0.0)
+                    if align_res and align_res.items:
+                        stream.result.tokens = [it.text for it in align_res.items]
+                        stream.result.timestamps = [it.start_time for it in align_res.items]
+
+                # 6. 精确 Token 级拼接 (即便没有对齐器，原生支持时间戳的模型也会走这里)
+                new_tokens = process_tokens_safely(stream.result.tokens)
+                new_timestamps = list(stream.result.timestamps)
+
+                result.tokens, result.timestamps = merge_tokens_by_sequence_matcher(
+                    prev_tokens=result.tokens,
+                    prev_timestamps=result.timestamps,
+                    new_tokens=new_tokens,
+                    new_timestamps=new_timestamps,
+                    offset=task.offset,
+                    overlap=task.overlap,
+                    is_first_segment=is_first_segment
+                )
+
+                # 7. 生成精确文本结果 (text_accu)
+                result.text_accu = tokens_to_text(result.tokens)
 
             # 8. 最终阶段处理 (任务结束时的格式化)
             if not task.is_final:

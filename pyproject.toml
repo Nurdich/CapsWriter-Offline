@@ -1,0 +1,52 @@
+[project]
+name = "capswriter-offline"
+version = "3.0.0"
+description = "CapsWriter-Offline monorepo workspace"
+requires-python = ">=3.10"
+readme = "readme.md"
+dependencies = [
+    "capswriter-client",
+    "capswriter-server",
+    "colorama>=0.4.6",
+    "gguf>=0.19.0",
+    "httpx>=0.28.1",
+    "keyboard>=0.13.5",
+    "markdown>=3.10.2",
+    "numba>=0.66.0",
+    "numpy>=2.2.6",
+    "ollama>=0.6.2",
+    "onnxruntime-directml>=1.24.3",
+    "openai>=2.45.0",
+    "pillow>=12.3.0",
+    "pyclip>=0.7.0",
+    "pyinstaller>=6.21.0",
+    "pynput>=1.8.2",
+    "pypinyin>=0.55.0",
+    "pystray>=0.19.5",
+    "rapidfuzz>=3.14.5",
+    "rich>=15.0.0",
+    "sherpa-onnx>=1.13.4",
+    "sounddevice>=0.5.5",
+    "srt>=3.5.3",
+    "tkhtmlview>=0.3.2",
+    "typer>=0.26.8",
+    "watchdog>=6.0.0",
+    "websockets>=16.1",
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/capswriter-client",
+    "packages/capswriter-server",
+]
+
+[tool.uv.sources]
+capswriter-client = { workspace = true }
+capswriter-server = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "hatchling",
+    "build",
+    "twine",
+]

@@ -135,7 +135,11 @@ class AudioRecorder:
                     if Config.save_audio and self._file_manager:
                         self._file_manager.write(data)
                     
-                    # 发送音频数据用于识别
+                    # 发送音频数据用于识别（流式分段，让服务端实时返回中间文字）
+                    seg_dur = getattr(Config, 'listening_stream_seg_duration', None)
+                    seg_ov = getattr(Config, 'listening_stream_seg_overlap', None)
+                    if seg_dur is None:
+                        seg_dur, seg_ov = Config.mic_seg_duration, Config.mic_seg_overlap
                     message = AudioMessage(
                         task_id=self.task_id,
                         source='mic',
@@ -144,8 +148,8 @@ class AudioRecorder:
                         ).decode('utf-8'),
                         is_final=False,
                         time_start=self._start_time,
-                        seg_duration=Config.mic_seg_duration,
-                        seg_overlap=Config.mic_seg_overlap,
+                        seg_duration=seg_dur,
+                        seg_overlap=seg_ov,
                         context=Config.context,
                         language=Config.language,
                     )
@@ -161,6 +165,10 @@ class AudioRecorder:
                         if Config.save_audio and self._file_manager:
                             self._file_manager.write(data)
 
+                        seg_dur = getattr(Config, 'listening_stream_seg_duration', None)
+                        seg_ov = getattr(Config, 'listening_stream_seg_overlap', None)
+                        if seg_dur is None:
+                            seg_dur, seg_ov = Config.mic_seg_duration, Config.mic_seg_overlap
                         message = AudioMessage(
                             task_id=self.task_id,
                             source='mic',
@@ -169,8 +177,8 @@ class AudioRecorder:
                             ).decode('utf-8'),
                             is_final=False,
                             time_start=self._start_time,
-                            seg_duration=Config.mic_seg_duration,
-                            seg_overlap=Config.mic_seg_overlap,
+                            seg_duration=seg_dur,
+                            seg_overlap=seg_ov,
                             context=Config.context,
                             language=Config.language,
                         )
@@ -186,14 +194,18 @@ class AudioRecorder:
                     logger.info(f"录音任务完成，任务ID: {self.task_id}, 时长: {self._duration:.2f}s")
                     
                     # 告诉服务端音频片段结束了
+                    seg_dur = getattr(Config, 'listening_stream_seg_duration', None)
+                    seg_ov = getattr(Config, 'listening_stream_seg_overlap', None)
+                    if seg_dur is None:
+                        seg_dur, seg_ov = Config.mic_seg_duration, Config.mic_seg_overlap
                     message = AudioMessage(
                         task_id=self.task_id,
                         source='mic',
                         data='',
                         is_final=True,
                         time_start=self._start_time,
-                        seg_duration=Config.mic_seg_duration,
-                        seg_overlap=Config.mic_seg_overlap,
+                        seg_duration=seg_dur,
+                        seg_overlap=seg_ov,
                         context=Config.context,
                         language=Config.language,
                     )

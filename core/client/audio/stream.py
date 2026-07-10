@@ -19,6 +19,46 @@ import sounddevice as sd
 from core.client.state import console
 from . import logger
 
+# 灵动岛浮窗（"正在听"实时反馈）
+# 延迟导入放在方法内，避免在 __init__ 阶段触发 Tkinter 子线程
+_ISLAND = None
+
+def _get_island():
+    global _ISLAND
+    if _ISLAND is None:
+        try:
+            from core.listening_island import ListeningIsland, set_logger as _set_island_logger
+            # 注入 client logger，使灵动岛内部日志写入 client_latest.log
+            try:
+                _set_island_logger(logger)
+            except Exception:
+                pass
+            island = ListeningIsland()
+            logger.info("[灵动岛] 实例创建成功，准备注入配置")
+            # 注入用户配置
+            try:
+                from config_client import ClientConfig as Config
+                island.configure(
+                    enabled=Config.listening_island_enabled,
+                    min_threshold=Config.listening_island_min_threshold,
+                    noise_factor=Config.listening_island_noise_factor,
+                    confirm_frames=Config.listening_island_confirm_frames,
+                    dock_edge=getattr(Config, 'listening_island_dock_edge', 'top'),
+                    auto_hide=getattr(Config, 'listening_island_auto_hide', True),
+                    beam=getattr(Config, 'listening_island_beam', True),
+                    show_partial=getattr(Config, 'listening_island_show_partial', True),
+                    beam_style=getattr(Config, 'listening_island_beam_style', 'comet'),
+                    beam_custom=getattr(Config, 'listening_island_beam_custom', None),
+                )
+                logger.info(f"[灵动岛] 配置已注入: enabled={Config.listening_island_enabled}")
+            except Exception as ce:
+                logger.warning(f"[灵动岛] 注入配置失败: {ce}")
+            _ISLAND = island
+        except Exception as e:
+            logger.warning(f"[灵动岛] 浮窗不可用: {e}", exc_info=True)
+            _ISLAND = False
+    return _ISLAND
+
 if TYPE_CHECKING:
     from core.client.state import ClientState
     from ..app import CapsWriterClient
@@ -77,6 +117,17 @@ class AudioStreamManager:
             return
 
         import asyncio
+
+        # 计算本帧能量（RMS），推送给"正在听"灵动岛浮窗（用于音量条显示）
+        try:
+            island = _get_island()
+            if island:
+                # indata: float32, shape (blocksize, channels)
+                mono = indata.mean(axis=1) if indata.ndim > 1 else indata
+                rms = float(np.sqrt(np.mean(np.square(mono.astype(np.float32)))))
+                island.push_level(rms)
+        except Exception as e:
+            logger.debug(f"[灵动岛] 推送能量失败: {e}")
 
         # 将数据放入队列
         if self.app.loop and self.state.queue_in:
